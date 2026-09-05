@@ -22,6 +22,8 @@ import plotly.graph_objects as go
 import statsmodels.api as sm
 import streamlit as st
 
+from informe_pdf import generar_informe_pdf
+
 # ---------------------------------------------------------------------------
 # Configuración general de la página
 # ---------------------------------------------------------------------------
@@ -528,6 +530,8 @@ if clave_modelo not in st.session_state:
             df_modelo, variable_y, variables_x, usar_split, proporcion_test,
             int(semilla),
         )
+    # Si se reajusta el modelo, un informe PDF previo ya no corresponde
+    st.session_state.pop("informe_pdf", None)
 resultado = st.session_state[clave_modelo]
 
 # Encabezado del modelo
@@ -728,6 +732,91 @@ with st.expander("📁 Predecir con un archivo (lote)"):
                 )
         except Exception as exc:  # noqa: BLE001
             st.error(f"No se pudo procesar el archivo: {exc}")
+
+st.divider()
+
+# ----------------------------- Informe en PDF -------------------------------
+
+st.subheader("📄 Informe en PDF del modelo")
+st.markdown(
+    "Genera un informe descargable con el **resumen del modelo**, la "
+    "**ecuación**, las **métricas de desempeño**, la **tabla de "
+    "coeficientes**, una **interpretación automática**, los **gráficos** del "
+    "modelo y la **predicción actual**."
+)
+
+figuras_informe: list[tuple[str, object]] = []
+if resultado["tipo"] == "simple":
+    figuras_informe.append(
+        (
+            "Gráfico 1 - Dispersión de los datos con la recta de regresión "
+            "y la banda de confianza del 95%",
+            grafico_simple(resultado),
+        )
+    )
+else:
+    figuras_informe.append(
+        (
+            "Gráfico 1 - Coeficientes estimados con su intervalo de "
+            "confianza del 95%",
+            grafico_coeficientes(resultado),
+        )
+    )
+    figuras_informe.append(
+        (
+            "Gráfico 2 - Valores reales frente a valores predichos por el "
+            "modelo",
+            grafico_real_vs_predicho(resultado),
+        )
+    )
+figuras_informe.append(
+    (
+        "Gráfico 3 - Residuos del modelo frente a los valores predichos",
+        grafico_residuos(resultado),
+    )
+)
+
+col_boton, col_estado = st.columns([1, 2])
+with col_boton:
+    boton_pdf = st.button("Generar informe en PDF", type="primary")
+if boton_pdf:
+    with st.spinner("Generando el informe PDF…"):
+        try:
+            st.session_state["informe_pdf"] = generar_informe_pdf(
+                nombre_archivo=(
+                    nombre_fuente if nombre_fuente else "Datos cargados"
+                ),
+                tipo=resultado["tipo"],
+                variable_y=variable_y,
+                variables_x=variables_x,
+                ecuacion=formula_modelo(resultado),
+                n_total=resultado["n_total"],
+                n_entrenamiento=resultado["n_entrenamiento"],
+                n_test=resultado["n_test"],
+                usar_split=resultado["metricas_test"] is not None,
+                metricas_train=resultado["metricas_train"],
+                metricas_test=resultado["metricas_test"],
+                tabla_coefs=resultado["tabla_coefs"],
+                figuras=figuras_informe,
+                valores_prediccion=valores_nuevos,
+                prediccion=prediccion,
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"No se pudo generar el informe: {exc}")
+
+if st.session_state.get("informe_pdf"):
+    st.download_button(
+        "⬇️ Descargar informe (PDF)",
+        data=st.session_state["informe_pdf"],
+        file_name="informe_modelo_regresion.pdf",
+        mime="application/pdf",
+        type="primary",
+    )
+    st.caption(
+        "El informe se generó con el modelo y la predicción mostrados "
+        "actualmente. Si cambias los datos o las variables, vuelve a "
+        "generarlo."
+    )
 
 st.divider()
 st.caption(
